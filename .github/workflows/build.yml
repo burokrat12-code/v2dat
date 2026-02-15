@@ -10,6 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    strategy:
+      matrix:
+        include:
+          - goarch: amd64
+            goos: linux
+          - goarch: arm64
+            goos: linux
     
     steps:
       - name: Checkout code
@@ -20,15 +27,36 @@ jobs:
         with:
           go-version: '1.21'
 
-      - name: Build for ARM64
+      - name: Build Binary
         run: |
-          GOOS=linux GOARCH=arm64 go build -v -ldflags="-s -w" -o v2dat .
-          tar -czf v2dat-linux-arm64.tar.gz v2dat
+          # Собираем с уникальным именем для каждой архитектуры
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -v -ldflags="-s -w" -o v2dat .
+          # Архивируем
+          tar -czf v2dat-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz v2dat
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2dat-${{ matrix.goarch }}
+          path: v2dat-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: latest
-          files: v2dat-linux-arm64.tar.gz
+          files: |
+            v2dat-linux-amd64.tar.gz
+            v2dat-linux-arm64.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
