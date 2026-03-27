@@ -11,6 +11,7 @@ jobs:
     permissions:
       contents: write
     strategy:
+      fail-fast: false
       matrix:
         include:
           - goarch: amd64
@@ -19,8 +20,8 @@ jobs:
             goos: linux
           - goarch: arm
             goos: linux
-            goarm: 7
-    
+            goarm: 7  # Для 32-битных MikroTik (arm)
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -31,17 +32,34 @@ jobs:
           go-version: '1.21'
 
       - name: Build Binary
+        id: build
         run: |
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} GOARM=${{ matrix.goarm }} go build -v -ldflags="-s -w" -o v2dat .
-          # Формируем имя: v2dat-linux-arm-v7.tar.gz или v2dat-linux-amd64.tar.gz
-          SUFFIX="${{ matrix.goarm && format('-v{0}', matrix.goarm) || '' }}"
-          tar -czf v2dat-${{ matrix.goos }}-${{ matrix.goarch }}${SUFFIX}.tar.gz v2dat
+          # Настраиваем суффикс для ARMv7, если он есть
+          GOARM_VAL="${{ matrix.goarm }}"
+          SUFFIX=""
+          if [ -n "$GOARM_VAL" ]; then
+            SUFFIX="v$GOARM_VAL"
+          fi
+          
+          # Уникальное имя для этого прохода матрицы
+          BIN_NAME="v2dat-${{ matrix.goos }}-${{ matrix.goarch }}${SUFFIX}"
+          
+          # Компиляция
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} GOARM=${{ matrix.goarm }} \
+          go build -v -ldflags="-s -w" -o v2dat .
+          
+          # Упаковка в архив
+          tar -czf ${BIN_NAME}.tar.gz v2dat
+          
+          # Сохраняем имя для следующего шага загрузки
+          echo "artifact_name=${BIN_NAME}" >> $GITHUB_OUTPUT
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: assets
-          path: "*.tar.gz"
+          # Используем уникальное имя, чтобы не было ошибки 409 Conflict
+          name: ${{ steps.build.outputs.artifact_name }}
+          path: ${{ steps.build.outputs.artifact_name }}.tar.gz
 
   release:
     needs: build
@@ -52,12 +70,16 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          name: assets
+          # Скачиваем все артефакты, созданные в джобе build
+          path: ./release_assets
+          pattern: v2dat-*
+          merge-multiple: true
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: latest
-          files: "*.tar.gz"
+          # Загружаем все найденные архивы в релиз
+          files: ./release_assets/*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
