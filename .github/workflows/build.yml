@@ -17,6 +17,9 @@ jobs:
             goos: linux
           - goarch: arm64
             goos: linux
+          - goarch: arm
+            goos: linux
+            goarm: 7
     
     steps:
       - name: Checkout code
@@ -29,16 +32,16 @@ jobs:
 
       - name: Build Binary
         run: |
-          # Собираем с уникальным именем для каждой архитектуры
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -v -ldflags="-s -w" -o v2dat .
-          # Архивируем
-          tar -czf v2dat-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz v2dat
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} GOARM=${{ matrix.goarm }} go build -v -ldflags="-s -w" -o v2dat .
+          # Формируем имя: v2dat-linux-arm-v7.tar.gz или v2dat-linux-amd64.tar.gz
+          SUFFIX="${{ matrix.goarm && format('-v{0}', matrix.goarm) || '' }}"
+          tar -czf v2dat-${{ matrix.goos }}-${{ matrix.goarch }}${SUFFIX}.tar.gz v2dat
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: v2dat-${{ matrix.goarch }}
-          path: v2dat-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+          name: assets
+          path: "*.tar.gz"
 
   release:
     needs: build
@@ -49,14 +52,12 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          merge-multiple: true
+          name: assets
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: latest
-          files: |
-            v2dat-linux-amd64.tar.gz
-            v2dat-linux-arm64.tar.gz
+          files: "*.tar.gz"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
